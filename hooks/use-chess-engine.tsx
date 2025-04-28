@@ -1,13 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Chess, Move, Piece, Square } from 'chess.js';
 
 interface PieceValues {
   [key: string]: number;
-}
-
-interface PassedPawns {
-  white: number;
-  black: number;
 }
 
 interface MinimaxResult {
@@ -32,7 +27,14 @@ const PIECE_VALUES: PieceValues = {
   'k': 20000
 };
 
-// Piece-square tables for knights and kings
+const SQUARE_INDICES = new Map<string, number>();
+for (let rank = 0; rank < 8; rank++) {
+  for (let file = 0; file < 8; file++) {
+    const square = String.fromCharCode(97 + file) + (8 - rank) as Square;
+    SQUARE_INDICES.set(square, rank * 8 + file);
+  }
+}
+
 const KNIGHT_SQUARE_TABLE: number[] = [
   -50,-40,-30,-30,-30,-30,-40,-50,
   -40,-20,  0,  5,  5,  0,-20,-40,
@@ -42,6 +44,39 @@ const KNIGHT_SQUARE_TABLE: number[] = [
   -30,  0, 10, 15, 15, 10,  0,-30,
   -40,-20,  0,  0,  0,  0,-20,-40,
   -50,-40,-30,-30,-30,-30,-40,-50
+];
+
+const KING_LATE_GAME_SQUARE_TABLE: number[] = [
+  -50,-40,-30,-20,-20,-30,-40,-50,
+  -30,-20,-10,  0,  0,-10,-20,-30,
+  -30,-10, 20, 30, 30, 20,-10,-30,
+  -30,-10, 30, 40, 40, 30,-10,-30,
+  -30,-10, 30, 40, 40, 30,-10,-30,
+  -30,-10, 20, 30, 30, 20,-10,-30,
+  -30,-20,-10,  0,  0,-10,-20,-30,
+  -50,-40,-30,-20,-20,-30,-40,-50
+];
+
+const PAWN_SQUARE_TABLE: number[] = [
+  0,  0,  0,  0,  0,  0,  0,  0,
+  50, 50, 50, 50, 50, 50, 50, 50,
+  10, 20, 20, 30, 30, 20, 20, 10,
+  5,  5,  5, 25, 25,  5,  5,  5,
+  0,  0,  0, 20, 20,  0,  0,  0,
+  5,  0,  0,  0,  0,  0,  0,  5,
+  5, 10, 10,-20,-20, 10, 10,  5,
+  0,  0,  0,  0,  0,  0,  0,  0
+];
+
+const BISHOP_SQUARE_TABLE: number[] = [
+  -20,-10,-10,-10,-10,-10,-10,-20,
+  -10,  5,  0,  0,  0,  0,  5,-10,
+  -10, 10, 10, 10, 10, 10, 10,-10,
+  -10,  0, 10, 10, 10, 10,  0,-10,
+  -10,  5,  5, 10, 10,  5,  5,-10,
+  -10,  0,  5, 10, 10,  5,  0,-10,
+  -10,  0,  0,  0,  0,  0,  0,-10,
+  -20,-10,-10,-10,-10,-10,-10,-20
 ];
 
 const KING_SQUARE_TABLE: number[] = [
@@ -55,6 +90,17 @@ const KING_SQUARE_TABLE: number[] = [
    20, 30, 10,  0,  0, 10, 30, 20
 ];
 
+// Hippo opening moves (Modern Defence/Hippo setup)
+// This will guide the engine to play this opening when playing as black
+const HIPPO_OPENING_BLACK: string[] = [
+  "g6", "Bg7", "d6", "Nd7", "e6", "Ngf7", "b6", "Bb7"
+];
+
+// For white, we'll use a corresponding setup
+const HIPPO_OPENING_WHITE: string[] = [
+  "g3", "Bg2", "d3", "Nd2", "e3", "Ngf3", "b3", "Bb2"
+];
+
 const DEPTH: number = 3;
 
 const useChessEngine = (initialFen?: string): ChessEngineState & { isLoading: boolean } => {
@@ -62,11 +108,57 @@ const useChessEngine = (initialFen?: string): ChessEngineState & { isLoading: bo
   const [status, setStatus] = useState<string>('Ready');
   const [lastMove, setLastMove] = useState<Move | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  
+  // Cache for position evaluations to avoid recalculating
+  const [evalCache] = useState<Map<string, number>>(new Map());
+  
+  // Memoized piece-square tables for faster lookup (flipped for black)
+  const flippedTables = useMemo(() => {
+    return {
+      knight: [...KNIGHT_SQUARE_TABLE].reverse(),
+      pawn: [...PAWN_SQUARE_TABLE].reverse(),
+      bishop: [...BISHOP_SQUARE_TABLE].reverse(),
+      king: [...KING_SQUARE_TABLE].reverse()
+    };
+  }, []);
 
-  // Evaluate the board position
+  // Function to get piece-square table value efficiently
+  const getPieceSquareValue = useCallback((piece: Piece, squareIndex: number): number => {
+    if (piece.color === 'w') {
+      switch (piece.type) {
+        case 'n': return KNIGHT_SQUARE_TABLE[squareIndex];
+        case 'p': return PAWN_SQUARE_TABLE[squareIndex];
+        case 'b': return BISHOP_SQUARE_TABLE[squareIndex];
+        case 'k': return KING_SQUARE_TABLE[squareIndex];
+        default: return 0;
+      }
+    } else {
+      // Flipped tables for black pieces
+      switch (piece.type) {
+        case 'n': return flippedTables.knight[squareIndex];
+        case 'p': return flippedTables.pawn[squareIndex];
+        case 'b': return flippedTables.bishop[squareIndex];
+        case 'k': return flippedTables.king[squareIndex];
+        default: return 0;
+      }
+    }
+  }, [flippedTables]);
+
+  // Optimized board evaluation
   const evaluateBoard = useCallback((): number => {
+    const fen = game.fen();
+    
+    // Check cache first
+    if (evalCache.has(fen)) {
+      return evalCache.get(fen)!;
+    }
+    
+    // Terminal states
     if (game.isCheckmate()) {
       return game.turn() === 'w' ? -Infinity : Infinity;
+    }
+    if (game.isDraw()) {
+      return 0;
     }
 
     let score: number = 0;
@@ -76,133 +168,182 @@ const useChessEngine = (initialFen?: string): ChessEngineState & { isLoading: bo
       for (let file = 0; file < 8; file++) {
         const piece = board[rank][file];
         if (piece) {
-          const squareIndex: number = rank * 8 + file;
-          const pieceValue: number = PIECE_VALUES[piece.type];
-          let positionBonus: number = 0;
-
-          // Piece value
+          const squareIndex = rank * 8 + file;
+          
+          // Material value
+          const pieceValue = PIECE_VALUES[piece.type];
           score += piece.color === 'w' ? pieceValue : -pieceValue;
-
-          // Piece-square bonuses
-          if (piece.type === 'n') {
-            positionBonus = KNIGHT_SQUARE_TABLE[squareIndex];
-          } else if (piece.type === 'k') {
-            positionBonus = KING_SQUARE_TABLE[squareIndex];
-          }
-
+          
+          // Position value (only calculate for important pieces to save time)
+          const positionBonus = getPieceSquareValue(piece, squareIndex);
           score += piece.color === 'w' ? positionBonus : -positionBonus;
-
-          // Mobility
-          const moves: Move[] = game.moves({ 
-            square: String.fromCharCode(97 + file) + (8 - rank) as Square, 
-            verbose: true 
-          });
-          score += piece.color === 'w' ? moves.length * 2 : -moves.length * 2;
         }
       }
     }
 
-    // King safety
-    const kingAttacks: number = game.inCheck() ? (game.turn() === 'w' ? -50 : 50) : 0;
-    score += kingAttacks;
+    // Simple mobility evaluation (just count legal moves)
+    const whiteMobility = game.turn() === 'w' ? game.moves().length : 0;
+    const blackMobility = game.turn() === 'b' ? game.moves().length : 0;
+    score += whiteMobility - blackMobility;
 
-    // Pawn structure
-    const passedPawns: PassedPawns = detectPassedPawns();
-    score += passedPawns.white * 50 - passedPawns.black * 50;
+    // King safety (simplified)
+    if (game.inCheck()) {
+      score += game.turn() === 'w' ? -50 : 50;
+    }
 
+    // Cache the evaluation
+    evalCache.set(fen, score);
     return score;
-  }, [game]);
+  }, [game, evalCache, getPieceSquareValue]);
 
-  // Detect passed pawns
-  const detectPassedPawns = useCallback((): PassedPawns => {
-    const board: (Piece | null)[][] = game.board();
-    const passed: PassedPawns = { white: 0, black: 0 };
-
+  // Simplified detection of passed pawns
+  const countPassedPawns = useCallback((): number => {
+    let whitePassedPawns = 0;
+    let blackPassedPawns = 0;
+    const board = game.board();
+    
+    // Simplified check - just count pawns past the 5th rank for each side
     for (let file = 0; file < 8; file++) {
-      let whitePawn: number = -1, blackPawn: number = -1;
-      for (let rank = 0; rank < 8; rank++) {
-        const piece = board[rank][file];
-        if (piece && piece.type === 'p') {
-          if (piece.color === 'w') whitePawn = rank;
-          else blackPawn = rank;
+      for (let rank = 0; rank < 3; rank++) {
+        if (board[rank][file]?.type === 'p' && board[rank][file]?.color === 'w') {
+          whitePassedPawns++;
         }
       }
-      if (whitePawn !== -1 && (blackPawn === -1 || blackPawn < whitePawn)) {
-        if (file > 0 && file < 7) {
-          const left: boolean = board[whitePawn][file-1]?.type !== 'p';
-          const right: boolean = board[whitePawn][file+1]?.type !== 'p';
-          if (left && right) passed.white++;
-        } else {
-          passed.white++;
-        }
-      }
-      if (blackPawn !== -1 && (whitePawn === -1 || whitePawn > blackPawn)) {
-        if (file > 0 && file < 7) {
-          const left: boolean = board[blackPawn][file-1]?.type !== 'p';
-          const right: boolean = board[blackPawn][file+1]?.type !== 'p';
-          if (left && right) passed.black++;
-        } else {
-          passed.black++;
+      for (let rank = 5; rank < 8; rank++) {
+        if (board[rank][file]?.type === 'p' && board[rank][file]?.color === 'b') {
+          blackPassedPawns++;
         }
       }
     }
-    return passed;
+    
+    return whitePassedPawns - blackPassedPawns;
   }, [game]);
 
-  // Minimax with alpha-beta pruning
+  // Order moves for better alpha-beta pruning
+  const orderMoves = useCallback((moves: Move[]): Move[] => {
+    return moves.sort((a, b) => {
+      let scoreA = 0;
+      let scoreB = 0;
+      
+      // Captures are examined first
+      if (a.captured) scoreA += PIECE_VALUES[a.captured] * 10;
+      if (b.captured) scoreB += PIECE_VALUES[b.captured] * 10;
+      
+      // Promotions are good
+      if (a.promotion) scoreA += PIECE_VALUES[a.promotion];
+      if (b.promotion) scoreB += PIECE_VALUES[b.promotion];
+      
+      // Check moves are interesting
+      if (a.san.includes('+')) scoreA += 50;
+      if (b.san.includes('+')) scoreB += 50;
+      
+      return scoreB - scoreA;
+    });
+  }, []);
+
+  // Optimized minimax with alpha-beta pruning
   const minimax = useCallback((
     depth: number,
     alpha: number,
     beta: number,
     maximizingPlayer: boolean
   ): MinimaxResult => {
+    // Base case: leaf node or terminal position
     if (depth === 0 || game.isGameOver()) {
       return { score: evaluateBoard(), move: null };
     }
 
-    const moves: Move[] = game.moves({ verbose: true });
+    let moves: Move[] = game.moves({ verbose: true });
     let bestMove: Move | null = null;
+    
+    // Order moves for better pruning
+    moves = orderMoves(moves);
 
     if (maximizingPlayer) {
       let maxEval: number = -Infinity;
       for (const move of moves) {
         game.move(move);
+        
+        // Immediate checkmate is best
         if (game.isCheckmate()) {
           game.undo();
           return { score: Infinity, move };
         }
-        const evalScore: number = minimax(depth - 1, alpha, beta, false).score;
+        
+        const evalResult = minimax(depth - 1, alpha, beta, false);
+        const evalScore = evalResult.score;
         game.undo();
+        
         if (evalScore > maxEval) {
           maxEval = evalScore;
           bestMove = move;
         }
+        
         alpha = Math.max(alpha, maxEval);
-        if (beta <= alpha) break;
+        if (beta <= alpha) break; // Alpha-beta pruning
       }
+      
       return { score: maxEval, move: bestMove };
     } else {
       let minEval: number = Infinity;
       for (const move of moves) {
         game.move(move);
+        
+        // Immediate checkmate is worst
         if (game.isCheckmate()) {
           game.undo();
           return { score: -Infinity, move };
         }
-        const evalScore: number = minimax(depth - 1, alpha, beta, true).score;
+        
+        const evalResult = minimax(depth - 1, alpha, beta, true);
+        const evalScore = evalResult.score;
         game.undo();
+        
         if (evalScore < minEval) {
           minEval = evalScore;
           bestMove = move;
         }
+        
         beta = Math.min(beta, minEval);
-        if (beta <= alpha) break;
+        if (beta <= alpha) break; // Alpha-beta pruning
       }
+      
       return { score: minEval, move: bestMove };
     }
-  }, [game, evaluateBoard]);
+  }, [game, evaluateBoard, orderMoves]);
 
-  // Make engine move
+  // Check if we should use a hippo opening move
+  const getHippoMove = useCallback((): Move | null => {
+    // Only use the opening book in the first 8 moves
+    const moveHistory = game.history();
+    const moveCount = moveHistory.length;
+    
+    if (moveCount < 8) {
+      const color = game.turn();
+      const openingMoves = color === 'w' ? HIPPO_OPENING_WHITE : HIPPO_OPENING_BLACK;
+      
+      // Try to make the corresponding hippo move
+      try {
+        // Calculate which move in the opening sequence we are on
+        const openingIndex = Math.floor(moveCount / 2);
+        if (openingIndex < openingMoves.length) {
+          const hippoMove = openingMoves[openingIndex];
+          // Check if the move is legal in the current position
+          const legalMoves = game.moves({ verbose: true });
+          const move = legalMoves.find(m => m.san === hippoMove || m.lan === hippoMove);
+          if (move) {
+            return move;
+          }
+        }
+      } catch (error) {
+        console.error('Error applying hippo move:', error);
+      }
+    }
+    
+    return null;
+  }, [game]);
+
+  // Make engine move (now with Hippo opening book)
   const getEngineMove = useCallback(async (fen?: string): Promise<Move | null> => {
     if (fen) {
       game.load(fen);
@@ -215,6 +356,24 @@ const useChessEngine = (initialFen?: string): ChessEngineState & { isLoading: bo
 
     setStatus('Engine thinking...');
     setIsLoading(true);
+    
+    // First check if we should make a hippo opening move
+    const hippoMove = getHippoMove();
+    
+    if (hippoMove) {
+      // Use the hippo move from our opening book
+      setTimeout(() => {
+        if (game.moves({verbose: true}).includes(hippoMove)) {
+          game.move(hippoMove);
+          setLastMove(hippoMove);
+          setStatus(`Engine moved: ${hippoMove.san} (Hippo opening)`);
+          setIsLoading(false);
+        }
+      }, 100);
+      return hippoMove;
+    }
+    
+    // Otherwise use the minimax algorithm
     const result: MinimaxResult = await new Promise((resolve) => {
       setTimeout(() => {
         const move = minimax(DEPTH, -Infinity, Infinity, game.turn() === 'w');
@@ -233,13 +392,15 @@ const useChessEngine = (initialFen?: string): ChessEngineState & { isLoading: bo
       setStatus('No valid moves available');
       return null;
     }
-  }, [game, minimax]);
+  }, [game, minimax, getHippoMove]);
 
   // Update game position
   const updatePosition = useCallback((fen: string): void => {
     game.load(fen);
     setStatus('Position updated');
-  }, [game]);
+    // Clear evaluation cache when position is updated
+    evalCache.clear();
+  }, [game, evalCache]);
 
   return {
     getEngineMove,

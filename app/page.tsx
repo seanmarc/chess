@@ -163,7 +163,7 @@ export default function ChessGame() {
         <div className="text-white">White: {whiteTime}s</div>
         <div className="text-white">Black: {blackTime}s</div>
       </div>
-      <div className="p-6 bg-white rounded-lg shadow-lg">
+      <div className="p-6 !bg-white rounded-lg shadow-lg">
         <Chessboard 
           position={chess.fen()} 
           selectedSquare={selectedSquare} 
@@ -228,7 +228,7 @@ const VictoryModal = ({ isOpen, winner, onClose }: { isOpen: boolean, winner: st
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Victory</DialogTitle>
-          <DialogDescription>{winner === "White" ? "You win champion!" : "You lost loser!"}</DialogDescription>
+          <DialogDescription>{winner === "White" ? "You win champion!" : "You lost! Try again next time!"}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button className="w-full"onClick={onClose}>Restart Game Game</Button>

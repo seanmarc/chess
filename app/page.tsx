@@ -5,7 +5,7 @@ import { Chess, Square } from "chess.js"
 import { Button } from "@/components/ui/button"
 import { RefreshCw, Loader2 } from "lucide-react"
 import Chessboard from "@/components/chessboard"
-import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import useChessEngine from "@/hooks/use-chess-engine"
 
 export default function ChessGame() {
@@ -16,12 +16,38 @@ export default function ChessGame() {
   const [isCheckmateModalOpen, setIsCheckmateModalOpen] = useState<boolean>(false)
   const [isDrawModalOpen, setIsDrawModalOpen] = useState<boolean>(false)
   const [isCheckModalOpen, setIsCheckModalOpen] = useState<boolean>(false)
+  const [whiteTime, setWhiteTime] = useState<number>(5)
+  const [blackTime, setBlackTime] = useState<number>(5)
+  const [activePlayer, setActivePlayer] = useState<string>("w")
+  const [isVictoryModalOpen, setIsVictoryModalOpen] = useState<boolean>(false)
+  const [winner, setWinner] = useState<string | null>(null)
 
   const { getEngineMove, updatePosition, status, lastMove, isLoading} = useChessEngine()
 
   useEffect(() => {
     updatePosition(chess.fen())
   }, [chess, updatePosition])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (chess.turn() === "w") {
+        setWhiteTime(prev => Math.max(prev - 1, 0))
+      } else {
+        setBlackTime(prev => Math.max(prev - 1, 0))
+      }
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [chess.turn()])
+
+  useEffect(() => {
+    if (whiteTime === 0 || blackTime === 0) {
+      const winningPlayer = whiteTime === 0 ? "Black" : "White"
+      setGameStatus(`${winningPlayer} wins on time!`)
+      setWinner(winningPlayer)
+      setIsVictoryModalOpen(true)
+    }
+  }, [whiteTime, blackTime])
 
   if (!chess) return <div>Loading...</div>
 
@@ -33,7 +59,6 @@ export default function ChessGame() {
         setSelectedSquare(square)
         // Calculate possible moves for the selected piece
         const moves = chess.moves({ square: square as Square, verbose: true }).map(move => move.to)
-        console.log("POSSIBLE MOVES", moves)
         setPossibleMoves(moves)
       }
       return
@@ -99,6 +124,8 @@ export default function ChessGame() {
             }
           }
         })
+
+        setActivePlayer(chess.turn())
       }
     } catch (e) {
       // If the move is invalid, check if the clicked square has a piece of the current player
@@ -116,19 +143,13 @@ export default function ChessGame() {
     setChess(newChess)
     setSelectedSquare(null)
     setGameStatus(`${newChess.turn() === "w" ? "White" : "Black"} to move.`)
+    setWhiteTime(60)
+    setBlackTime(60)
+    setActivePlayer("w")
+    setIsVictoryModalOpen(false)
+    setWinner(null)
   }
 
-  const undoMove = () => {
-    chess.undo()
-    setChess(new Chess(chess.fen()))
-    setSelectedSquare(null)
-
-    if (chess.isCheck()) {
-      setGameStatus(`Check! ${chess.turn() === "w" ? "White" : "Black"} to move.`)
-    } else {
-      setGameStatus(`${chess.turn() === "w" ? "White" : "Black"} to move.`)
-    }
-  }
 
 
   return (
@@ -138,6 +159,10 @@ export default function ChessGame() {
       </div>}
       <h1 className="mb-6 text-3xl font-bold">Chess Bot Made by Sean Marcus</h1>
       <h2 className="mb-6 text-xl font-bold">Current Game Status: {gameStatus}</h2>
+      <div className="flex justify-between w-full max-w-md mb-4">
+        <div className="text-white">White: {whiteTime}s</div>
+        <div className="text-white">Black: {blackTime}s</div>
+      </div>
       <div className="p-6 bg-white rounded-lg shadow-lg">
         <Chessboard 
           position={chess.fen()} 
@@ -147,6 +172,10 @@ export default function ChessGame() {
         />
         <CheckmateModal isOpen={isCheckmateModalOpen} onOpenChange={setIsCheckmateModalOpen} gameStatus={gameStatus} />
         <DrawModal isOpen={isDrawModalOpen} onOpenChange={setIsDrawModalOpen} gameStatus={gameStatus} />
+        <VictoryModal isOpen={isVictoryModalOpen} onClose={() => {
+          resetGame()
+          setIsVictoryModalOpen(false)
+        }} winner={winner} />
 
         <div className="flex items-center justify-between mt-4">
           <div className="text-lg font-medium">
@@ -188,6 +217,22 @@ const DrawModal = ({ isOpen, onOpenChange, gameStatus }: { isOpen: boolean, onOp
         <DialogHeader>
           <DialogTitle>Draw</DialogTitle>
         </DialogHeader>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const VictoryModal = ({ isOpen, winner, onClose }: { isOpen: boolean, winner: string | null, onClose: () => void }) => {
+  return (
+    <Dialog open={isOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Victory</DialogTitle>
+          <DialogDescription>{winner === "White" ? "You win champion!" : "You lost loser!"}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button className="w-full"onClick={onClose}>Restart Game Game</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

@@ -37,7 +37,7 @@ for (let rank = 0; rank < 8; rank++) {
 
 const KNIGHT_SQUARE_TABLE: number[] = [
   -50,-40,-30,-30,-30,-30,-40,-50,
-  -40,-20,  0,  5,  5,  0,-20,-40,
+  -40,-20,  0,  20,  20,  0,-20,-40,
   -30,  5, 10, 15, 15, 10,  5,-30,
   -30,  0, 15, 20, 20, 15,  0,-30,
   -30,  5, 15, 20, 20, 15,  5,-30,
@@ -93,12 +93,12 @@ const KING_SQUARE_TABLE: number[] = [
 // Hippo opening moves (Modern Defence/Hippo setup)
 // This will guide the engine to play this opening when playing as black
 const HIPPO_OPENING_BLACK: string[] = [
-  "g6", "Bg7", "d6", "Nd7", "e6", "Ngf7", "b6", "Bb7"
+  "g6", "Bg7", "d6", "Nd7", "e6", "Nge7", "b6", "Bb7"
 ];
 
 // For white, we'll use a corresponding setup
 const HIPPO_OPENING_WHITE: string[] = [
-  "g3", "Bg2", "d3", "Nd2", "e3", "Ngf3", "b3", "Bb2"
+  "g3", "Bg2", "d3", "Nd2", "e3", "Nge2", "b3", "Bb2"
 ];
 
 const DEPTH: number = 3;

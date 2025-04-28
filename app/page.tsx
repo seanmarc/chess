@@ -139,7 +139,7 @@ export default function ChessGame() {
       {isLoading && <div className="fixed inset-0 top-8 left-8 flex items-center justify-center bg-gray-900 bg-opacity-50">
         <Loader2 className="w-8 h-8 text-white animate-spin" />
       </div>}
-      <h1 className="mb-6 text-3xl font-bold">Chess Game</h1>
+      <h1 className="mb-6 text-3xl font-bold">Chess Bot Made by Sean Marcus</h1>
       <h2 className="mb-6 text-xl font-bold">Current Game Status: {gameStatus}</h2>
       <div className="p-6 bg-white rounded-lg shadow-lg">
         <Chessboard 

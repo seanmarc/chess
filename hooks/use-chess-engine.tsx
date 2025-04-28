@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Chess, Move, Piece } from 'chess.js';
+import { Chess, Move, Piece, Square } from 'chess.js';
 
 interface PieceValues {
   [key: string]: number;
@@ -55,15 +55,20 @@ const KING_SQUARE_TABLE: number[] = [
    20, 30, 10,  0,  0, 10, 30, 20
 ];
 
-const DEPTH: number = 2;
+const DEPTH: number = 3;
 
-const useChessEngine = (initialFen?: string): ChessEngineState => {
+const useChessEngine = (initialFen?: string): ChessEngineState & { isLoading: boolean } => {
   const [game, setGame] = useState<Chess>(new Chess(initialFen));
   const [status, setStatus] = useState<string>('Ready');
   const [lastMove, setLastMove] = useState<Move | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // Evaluate the board position
   const evaluateBoard = useCallback((): number => {
+    if (game.isCheckmate()) {
+      return game.turn() === 'w' ? -Infinity : Infinity;
+    }
+
     let score: number = 0;
     const board: (Piece | null)[][] = game.board();
 
@@ -89,7 +94,7 @@ const useChessEngine = (initialFen?: string): ChessEngineState => {
 
           // Mobility
           const moves: Move[] = game.moves({ 
-            square: String.fromCharCode(97 + file) + (8 - rank), 
+            square: String.fromCharCode(97 + file) + (8 - rank) as Square, 
             verbose: true 
           });
           score += piece.color === 'w' ? moves.length * 2 : -moves.length * 2;
@@ -98,7 +103,7 @@ const useChessEngine = (initialFen?: string): ChessEngineState => {
     }
 
     // King safety
-    const kingAttacks: number = game.in_check() ? (game.turn() === 'w' ? -50 : 50) : 0;
+    const kingAttacks: number = game.inCheck() ? (game.turn() === 'w' ? -50 : 50) : 0;
     score += kingAttacks;
 
     // Pawn structure
@@ -151,7 +156,7 @@ const useChessEngine = (initialFen?: string): ChessEngineState => {
     beta: number,
     maximizingPlayer: boolean
   ): MinimaxResult => {
-    if (depth === 0 || game.game_over()) {
+    if (depth === 0 || game.isGameOver()) {
       return { score: evaluateBoard(), move: null };
     }
 
@@ -162,6 +167,10 @@ const useChessEngine = (initialFen?: string): ChessEngineState => {
       let maxEval: number = -Infinity;
       for (const move of moves) {
         game.move(move);
+        if (game.isCheckmate()) {
+          game.undo();
+          return { score: Infinity, move };
+        }
         const evalScore: number = minimax(depth - 1, alpha, beta, false).score;
         game.undo();
         if (evalScore > maxEval) {
@@ -176,6 +185,10 @@ const useChessEngine = (initialFen?: string): ChessEngineState => {
       let minEval: number = Infinity;
       for (const move of moves) {
         game.move(move);
+        if (game.isCheckmate()) {
+          game.undo();
+          return { score: -Infinity, move };
+        }
         const evalScore: number = minimax(depth - 1, alpha, beta, true).score;
         game.undo();
         if (evalScore < minEval) {
@@ -195,18 +208,21 @@ const useChessEngine = (initialFen?: string): ChessEngineState => {
       game.load(fen);
     }
 
-    if (game.game_over()) {
-      setStatus('Game Over: ' + (game.in_checkmate() ? 'Checkmate' : 'Draw'));
+    if (game.isGameOver()) {
+      setStatus('Game Over: ' + (game.isCheckmate() ? 'Checkmate' : 'Draw'));
       return null;
     }
 
     setStatus('Engine thinking...');
+    setIsLoading(true);
     const result: MinimaxResult = await new Promise((resolve) => {
       setTimeout(() => {
         const move = minimax(DEPTH, -Infinity, Infinity, game.turn() === 'w');
         resolve(move);
       }, 100);
     });
+
+    setIsLoading(false);
 
     if (result.move) {
       game.move(result.move);
@@ -229,7 +245,8 @@ const useChessEngine = (initialFen?: string): ChessEngineState => {
     getEngineMove,
     updatePosition,
     status,
-    lastMove
+    lastMove,
+    isLoading
   };
 };
 

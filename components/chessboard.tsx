@@ -110,7 +110,7 @@ export default function Chessboard({ position, selectedSquare, onSquareClick, po
   }
 
   return (
-    <div className="grid grid-cols-8 border border-gray-800" style={{ width: boardSize, height: boardSize }}>
+    <div className="grid grid-cols-8 border border-blue-800" style={{ width: boardSize, height: boardSize }}>
       {renderSquares()}
     </div>
   )

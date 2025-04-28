@@ -9,9 +9,9 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import useChessEngine from "@/hooks/use-chess-engine"
 
 export default function ChessGame() {
-  const [chess, setChess] = useState<Chess | null>(null)
+  const [chess, setChess] = useState<Chess>(() => new Chess())
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
-  const [gameStatus, setGameStatus] = useState<string>("")
+  const [gameStatus, setGameStatus] = useState<string>(() => `${chess.turn() === "w" ? "White" : "Black"} to move.`)
   const [possibleMoves, setPossibleMoves] = useState<string[]>([])
   const [isCheckmateModalOpen, setIsCheckmateModalOpen] = useState<boolean>(false)
   const [isDrawModalOpen, setIsDrawModalOpen] = useState<boolean>(false)
@@ -19,12 +19,9 @@ export default function ChessGame() {
 
   const { getEngineMove, updatePosition, status, lastMove, isLoading} = useChessEngine()
 
-  // Initialize chess instance
   useEffect(() => {
-    const newChess = new Chess()
-    setChess(newChess)
-    updatePosition(newChess.fen())
-  }, [updatePosition])
+    updatePosition(chess.fen())
+  }, [chess, updatePosition])
 
   if (!chess) return <div>Loading...</div>
 

@@ -155,7 +155,7 @@ export default function ChessGame() {
           <div className="text-lg font-medium">
             {gameStatus || `${chess.turn() === "w" ? "White" : "Black"} to move.`}
           </div>
-
+          <div>Hey William</div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={resetGame}>
               <RefreshCw className="w-4 h-4 mr-2" />
